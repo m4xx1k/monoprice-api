@@ -30,6 +30,22 @@ export type AnalyzeRequest = {
   photos: string[]
 }
 
+// ── Route: /v1/product ──
+
+export type InitBody = {
+  id: string
+  title: string
+  category: string
+  photos: unknown
+}
+
+export type DescriptionBody = {
+  id: string
+  title: string
+  description: string
+  category?: number
+}
+
 // ── Response contracts ──
 
 export type SimilarProduct = {

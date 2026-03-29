@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { env } from '../config/env.js'
-import { openrouter, models } from '../db/openrouter.js'
+import { openrouter } from '../db/openrouter.js'
 
 // Use OpenAI directly if key provided (faster, no proxy overhead)
 // Otherwise fall back to OpenRouter
@@ -20,9 +20,6 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   return response.data[0].embedding
 }
 
-export function buildSearchQuery(description: string, visionDetails?: string): string {
-  const parts: string[] = []
-  if (visionDetails) parts.push(visionDetails)
-  parts.push(description)
-  return parts.join(' ').slice(0, 2000)
+export function buildSearchQuery(description: string): string {
+  return description.slice(0, 2000)
 }
