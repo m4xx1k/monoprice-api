@@ -1,6 +1,8 @@
 import { supabase } from '../db/supabase.js'
 import type { Listing } from '../types/index.js'
 
+const MEDIA_BASE_URL = 'https://resale-media.monobazar.com.ua/'
+
 type SearchOptions = {
   embedding: number[]
   category_id?: number
@@ -38,6 +40,41 @@ export async function searchListings(options: SearchOptions): Promise<Listing[]>
   }
 
   return (data ?? []) as Listing[]
+}
+
+export async function populateImageUrls(listings: Listing[]): Promise<Listing[]> {
+  const externalIds = listings.map((l) => l.external_id).filter(Boolean)
+
+  if (!externalIds.length) {
+    console.log('[photos] no external_ids found in listings')
+    return listings
+  }
+
+  const { data, error } = await supabase
+    .from('photos')
+    .select('advertisement_id, s3_key')
+    .in('advertisement_id', externalIds)
+
+  if (error) {
+    console.error('Photos fetch error:', error)
+    return listings
+  }
+
+  console.log(`[photos] queried external_ids: [${externalIds.join(', ')}]`)
+  console.log(`[photos] got ${data?.length ?? 0} photos:`, JSON.stringify(data))
+
+  // Map: advertisement_id → first s3_key
+  const photoMap = new Map<string, string>()
+  for (const row of data ?? []) {
+    if (!photoMap.has(row.advertisement_id)) {
+      photoMap.set(row.advertisement_id, row.s3_key)
+    }
+  }
+
+  return listings.map((l) => {
+    const s3Key = photoMap.get(l.external_id)
+    return s3Key ? { ...l, image_url: `${MEDIA_BASE_URL}${s3Key}` } : l
+  })
 }
 
 export async function findCandidateIds(title: string, categoryId: number): Promise<number[]> {
