@@ -1,60 +1,77 @@
 import { Hono } from 'hono'
+import { generateEmbedding, buildSearchQuery } from '../services/embeddings.js'
+import { searchListings, findCandidateIds } from '../services/search.js'
+import { calculatePrice } from '../services/pricer.js'
+
+// In-memory store: product id → pre-filtered candidate listing IDs
+const candidateCache = new Map<string, number[]>()
 
 const product = new Hono()
 
 product.post('/v1/product/init', async (c) => {
   const body = await c.req.parseBody({ all: true })
 
-  const id = body['id']
-  const title = body['title']
-  const category = body['category']
+  const id = body['id'] as string
+  const title = body['title'] as string
+  const category = body['category'] as string
   const photos = body['photos']
 
   if (!id || !title || !category || !photos) {
     return c.json({ error: 'id, title, category and at least one photo are required' }, 400)
   }
 
+  const t0 = Date.now()
+  const candidates = await findCandidateIds(title, parseInt(category, 10))
+  candidateCache.set(id, candidates)
+
+  console.log(`[init] id=${id} | title="${title}" | category=${category} | candidates: ${candidates.length} | ${Date.now() - t0}ms`)
+
   return c.body(null, 204)
 })
 
 product.post('/v1/product/description', async (c) => {
-  const body = await c.req.json<{ id: string; description: string }>()
+  const body = await c.req.json<{
+    id: string
+    title: string
+    description: string
+    category?: number
+  }>()
 
   if (!body.id || !body.description) {
     return c.json({ error: 'id and description are required' }, 400)
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 2000))
+  const t0 = Date.now()
 
-  return c.json({
-    price: {
-      fast: 1700.0,
-      balanced: 2100.0,
-      profit: 2500.0,
-    },
-    explanation:
-      'Ціну розраховано на основі 14 схожих проданих товарів. У середньому їх купували за 6 дн., у 42% випадків відбувався торг. Балансована ціна відповідає середній ринковій.',
-    similar_products: [
-      {
-        title: "Levi's White Sneakers, Size 39",
-        image_url: 'https://i.ebayimg.com/images/g/5YoAAeSwC4ZpvoCW/s-l1200.webp',
-        sold_price: 1750.0,
-        sales_duration: 3,
-      },
-      {
-        title: 'Saucony Triumph 17, Blue/Black, US 8.5',
-        image_url: 'https://i.ebayimg.com/00/s/MTA5N1gxMjc4/z/fhEAAOSwru1ipDPP/$_57.JPG?',
-        sold_price: 2100.0,
-        sales_duration: 7,
-      },
-      {
-        title: 'Nike Air Zoom Pegasus 39, Black, EU 42',
-        image_url: 'https://i.ebayimg.com/images/g/8X4AAOSwfoNlxzTe/s-l400.png',
-        sold_price: 2500.0,
-        sales_duration: 14,
-      },
-    ],
+  const query = buildSearchQuery(
+    [body.title, body.description].filter(Boolean).join(' ')
+  )
+  const embedding = await generateEmbedding(query)
+  const tEmbed = Date.now()
+
+  const candidates = candidateCache.get(body.id)
+
+  const analogs = await searchListings({
+    embedding,
+    category_id: body.category,
+    ...(candidates?.length ? { candidate_ids: candidates } : {}),
   })
+  const tSearch = Date.now()
+
+  // Clean up cache after use
+  candidateCache.delete(body.id)
+
+  if (!analogs.length) {
+    return c.json({ error: 'Не знайдено схожих товарів' }, 422)
+  }
+
+  const result = calculatePrice(analogs, body.description)
+  const tTotal = Date.now()
+
+  console.log(`[pricing] id=${body.id} | embedding: ${tEmbed - t0}ms | search: ${tSearch - tEmbed}ms | total: ${tTotal - t0}ms | analogs: ${analogs.length} | candidates: ${candidates?.length ?? 'none (full search)'}`)
+  console.log(`[pricing] top match: "${analogs[0].title}" similarity=${analogs[0].similarity.toFixed(3)} sold=${analogs[0].sold_price}`)
+
+  return c.json(result)
 })
 
 export default product

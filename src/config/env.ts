@@ -6,10 +6,13 @@ const envSchema = z.object({
   SUPABASE_URL: z.url(),
   SUPABASE_SERVICE_KEY: z.string().min(1),
 
-  // OpenRouter
+  // OpenRouter (vision, LLM)
   OPENROUTER_API_KEY: z.string().min(1),
   OPENROUTER_VISION_MODEL: z.string().default('anthropic/claude-sonnet-4-20250514'),
-  OPENROUTER_EMBEDDING_MODEL: z.string().default('openai/text-embedding-3-small'),
+
+  // OpenAI direct (embeddings — faster than via OpenRouter)
+  OPENAI_API_KEY: z.string().optional(),
+  OPENROUTER_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
 
   // Server
   PORT: z.coerce.number().default(3000),

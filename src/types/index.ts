@@ -14,6 +14,7 @@ export type VisionResult = {
 export type Listing = {
   id: number
   title: string
+  description: string | null
   image_url: string | null
   sold_price: number
   original_price: number
@@ -28,16 +29,11 @@ export type AnalyzeRequest = {
   photos: string[]
 }
 
-export type PriceRequest = {
-  description: string
-  vision_result?: VisionResult
-  category_id?: number
-}
-
 // ── Response contracts ──
 
 export type SimilarProduct = {
   title: string
+  description: string | null
   image_url: string | null
   sold_price: number
   sales_duration: number

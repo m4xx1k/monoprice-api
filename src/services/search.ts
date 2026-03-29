@@ -5,10 +5,26 @@ type SearchOptions = {
   embedding: number[]
   category_id?: number
   limit?: number
+  candidate_ids?: number[]
 }
 
 export async function searchListings(options: SearchOptions): Promise<Listing[]> {
-  const { embedding, category_id, limit = 20 } = options
+  const { embedding, category_id, limit = 10, candidate_ids } = options
+
+  // If we have pre-filtered candidate IDs, search only among them
+  if (candidate_ids?.length) {
+    const { data, error } = await supabase.rpc('match_listings_by_ids', {
+      query_embedding: embedding,
+      candidate_ids,
+      match_count: limit,
+    })
+
+    if (error) {
+      console.error('Supabase search (by ids) error:', error)
+      throw new Error(`Search failed: ${error.message}`)
+    }
+    return (data ?? []) as Listing[]
+  }
 
   const { data, error } = await supabase.rpc('match_listings', {
     query_embedding: embedding,
@@ -22,4 +38,35 @@ export async function searchListings(options: SearchOptions): Promise<Listing[]>
   }
 
   return (data ?? []) as Listing[]
+}
+
+export async function findCandidateIds(title: string, categoryId: number): Promise<number[]> {
+  // Search by category + text similarity in title, only SOLD with embedding
+  const keywords = title
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+    .slice(0, 5)
+
+  let query = supabase
+    .from('listings')
+    .select('id')
+    .eq('category_id', categoryId)
+    .eq('status', 'SOLD')
+    .gt('sold_price', 0)
+    .not('embedding', 'is', null)
+
+  // Add text search filter if we have keywords
+  if (keywords.length) {
+    // ilike on any keyword in title
+    query = query.or(keywords.map((k) => `title.ilike.%${k}%`).join(','))
+  }
+
+  const { data, error } = await query.limit(200)
+
+  if (error) {
+    console.error('Candidate search error:', error)
+    return []
+  }
+
+  return (data ?? []).map((r) => r.id)
 }
