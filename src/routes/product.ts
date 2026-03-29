@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { generateEmbedding, buildSearchQuery } from '../services/embeddings.js'
+import { generateEmbedding,  } from '../services/embeddings.js'
 import { searchListings, findCandidateIds, populateImageUrls } from '../services/search.js'
 import { calculatePrice } from '../services/pricer.js'
 import type { InitBody, DescriptionBody } from '../types/index.js'
@@ -23,7 +23,7 @@ function parseInitBody(body: Record<string, unknown>): InitBody | null {
 
 /** Build search query from title+description and generate its embedding vector */
 async function embedDescription(title: string, description: string) {
-  const query = buildSearchQuery([title, description].filter(Boolean).join(' '))
+  const query = [title, description].filter(Boolean).join(' ').slice(0, 2000)
   return generateEmbedding(query)
 }
 

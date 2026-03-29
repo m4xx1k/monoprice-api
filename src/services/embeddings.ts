@@ -20,6 +20,3 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   return response.data[0].embedding
 }
 
-export function buildSearchQuery(description: string): string {
-  return description.slice(0, 2000)
-}
