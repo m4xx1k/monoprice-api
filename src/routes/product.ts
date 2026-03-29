@@ -37,19 +37,19 @@ product.post('/v1/product/description', async (c) => {
     similar_products: [
       {
         title: "Levi's White Sneakers, Size 39",
-        image_url: 'https://example.com/images/product1.jpg',
+        image_url: 'https://i.ebayimg.com/images/g/5YoAAeSwC4ZpvoCW/s-l1200.webp',
         sold_price: 1750.0,
         sales_duration: 3,
       },
       {
         title: 'Saucony Triumph 17, Blue/Black, US 8.5',
-        image_url: 'https://example.com/images/product2.jpg',
+        image_url: 'https://i.ebayimg.com/00/s/MTA5N1gxMjc4/z/fhEAAOSwru1ipDPP/$_57.JPG?',
         sold_price: 2100.0,
         sales_duration: 7,
       },
       {
         title: 'Nike Air Zoom Pegasus 39, Black, EU 42',
-        image_url: 'https://example.com/images/product3.jpg',
+        image_url: 'https://i.ebayimg.com/images/g/8X4AAOSwfoNlxzTe/s-l400.png',
         sold_price: 2500.0,
         sales_duration: 14,
       },
