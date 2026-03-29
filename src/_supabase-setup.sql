@@ -1,0 +1,64 @@
+-- -- ============================================
+-- -- MonoBazar Pricer — Supabase setup
+-- -- Run this in Supabase SQL Editor
+-- -- ============================================
+
+-- -- 1. Enable pgvector
+-- create extension if not exists vector;
+
+-- -- 2. Listings table
+-- create table if not exists listings (
+--   id            bigserial primary key,
+--   title         text,
+--   description   text,
+--   original_price numeric,
+--   sold_price    numeric,
+--   status        text,          -- ACTIVE | SOLD | DELETED | ...
+--   sold_via_bargain boolean,
+--   category_id   int,
+--   created_at    timestamptz,
+--   modified_at   timestamptz,   -- for SOLD = sale date
+--   image_url     text,          -- first photo (for similar_products)
+--   embedding     vector(1536)
+-- );
+
+-- -- 3. HNSW index for fast vector search
+-- create index if not exists listings_embedding_idx
+--   on listings using hnsw (embedding vector_cosine_ops);
+
+-- -- 4. Regular indexes for filtering
+-- create index if not exists listings_category_idx on listings(category_id);
+-- create index if not exists listings_status_idx on listings(status);
+
+-- -- 5. RPC function for vector similarity search
+-- create or replace function match_listings(
+--   query_embedding vector(1536),
+--   match_count     int     default 20,
+--   filter_category int     default null,
+--   filter_status   text    default 'SOLD'
+-- )
+-- returns table (
+--   id             bigint,
+--   title          text,
+--   image_url      text,
+--   sold_price     numeric,
+--   original_price numeric,
+--   created_at     timestamptz,
+--   modified_at    timestamptz,
+--   similarity     float
+-- )
+-- language sql stable
+-- as $$
+--   select
+--     id, title, image_url, sold_price, original_price,
+--     created_at, modified_at,
+--     1 - (embedding <=> query_embedding) as similarity
+--   from listings
+--   where
+--     status = coalesce(filter_status, status)
+--     and (filter_category is null or category_id = filter_category)
+--     and sold_price is not null
+--     and sold_price > 0
+--   order by embedding <=> query_embedding
+--   limit match_count;
+-- $$;
