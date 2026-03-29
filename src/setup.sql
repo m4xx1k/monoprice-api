@@ -23,7 +23,15 @@ create table if not exists listings (
   embedding        vector(1536)
 );
 
--- 3. Indexes
+-- 3. Create photos table
+create table if not exists photos (
+  s3_key           uuid primary key,
+  advertisement_id uuid not null
+);
+
+create index if not exists photos_advertisement_idx on photos(advertisement_id);
+
+-- 4. Indexes
 create index if not exists listings_category_idx on listings(category_id);
 create index if not exists listings_status_idx   on listings(status);
 create index if not exists listings_embedding_idx on listings using hnsw (embedding vector_cosine_ops);
@@ -37,6 +45,7 @@ create or replace function match_listings(
 )
 returns table (
   id             bigint,
+  external_id    uuid,
   title          text,
   description    text,
   image_url      text,
@@ -48,7 +57,7 @@ returns table (
 )
 language sql stable as $$
   select
-    id, title, description, image_url, sold_price, original_price,
+    id, external_id, title, description, image_url, sold_price, original_price,
     created_at, modified_at,
     1 - (embedding <=> query_embedding) as similarity
   from listings
@@ -67,6 +76,7 @@ create or replace function match_listings_by_ids(
 )
 returns table (
   id             bigint,
+  external_id    uuid,
   title          text,
   description    text,
   image_url      text,
@@ -78,7 +88,7 @@ returns table (
 )
 language sql stable as $$
   select
-    id, title, description, image_url, sold_price, original_price,
+    id, external_id, title, description, image_url, sold_price, original_price,
     created_at, modified_at,
     1 - (embedding <=> query_embedding) as similarity
   from listings

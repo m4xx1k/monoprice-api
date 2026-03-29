@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { generateEmbedding, buildSearchQuery } from '../services/embeddings.js'
-import { searchListings, findCandidateIds } from '../services/search.js'
+import { searchListings, findCandidateIds, populateImageUrls } from '../services/search.js'
 import { calculatePrice } from '../services/pricer.js'
 
 // In-memory store: product id → pre-filtered candidate listing IDs
@@ -51,12 +51,15 @@ product.post('/v1/product/description', async (c) => {
 
   const candidates = candidateCache.get(body.id)
 
-  const analogs = await searchListings({
+  const rawAnalogs = await searchListings({
     embedding,
     category_id: body.category,
     ...(candidates?.length ? { candidate_ids: candidates } : {}),
   })
   const tSearch = Date.now()
+
+  const analogs = await populateImageUrls(rawAnalogs)
+  const tPhotos = Date.now()
 
   // Clean up cache after use
   candidateCache.delete(body.id)
@@ -68,7 +71,7 @@ product.post('/v1/product/description', async (c) => {
   const result = calculatePrice(analogs, body.description)
   const tTotal = Date.now()
 
-  console.log(`[pricing] id=${body.id} | embedding: ${tEmbed - t0}ms | search: ${tSearch - tEmbed}ms | total: ${tTotal - t0}ms | analogs: ${analogs.length} | candidates: ${candidates?.length ?? 'none (full search)'}`)
+  console.log(`[pricing] id=${body.id} | embedding: ${tEmbed - t0}ms | search: ${tSearch - tEmbed}ms | photos: ${tPhotos - tSearch}ms | total: ${tTotal - t0}ms | analogs: ${analogs.length} | candidates: ${candidates?.length ?? 'none (full search)'}`)
   console.log(`[pricing] top match: "${analogs[0].title}" similarity=${analogs[0].similarity.toFixed(3)} sold=${analogs[0].sold_price}`)
 
   return c.json(result)

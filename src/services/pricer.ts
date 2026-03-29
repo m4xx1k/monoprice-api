@@ -29,6 +29,7 @@ export function calculatePrice(analogs: Listing[], description: string): PriceRe
   })
 
   const similar_products = analogs.slice(0, 5).map((a) => ({
+    external_id: a.external_id,
     title: a.title,
     description: a.description,
     image_url: a.image_url,

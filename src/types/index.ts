@@ -13,6 +13,7 @@ export type VisionResult = {
 
 export type Listing = {
   id: number
+  external_id: string
   title: string
   description: string | null
   image_url: string | null
@@ -32,6 +33,7 @@ export type AnalyzeRequest = {
 // ── Response contracts ──
 
 export type SimilarProduct = {
+  external_id: string
   title: string
   description: string | null
   image_url: string | null
