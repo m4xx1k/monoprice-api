@@ -1,6 +1,6 @@
 import type { Listing, PriceResponse } from '../types/index.js'
 
-export function calculatePrice(analogs: Listing[], description: string): PriceResponse {
+export function calculatePrice(analogs: Listing[]): PriceResponse {
   const prices = analogs.map((a) => a.sold_price).sort((a, b) => a - b)
   const durations = analogs.map((a) => salesDuration(a.created_at, a.modified_at))
 
