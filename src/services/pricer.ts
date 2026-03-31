@@ -1,23 +1,29 @@
 import type { Listing, PriceResponse } from '../types/index.js'
 
 export function calculatePrice(analogs: Listing[]): PriceResponse {
-  const prices = analogs.map((a) => a.sold_price).sort((a, b) => a - b)
-  const durations = analogs.map((a) => salesDuration(a.created_at, a.modified_at))
+  const sold = analogs.filter((a) => a.status === 'SOLD')
+  const prices = sold.map((a) => a.sold_price).sort((a, b) => a - b)
+  const durations = sold.map((a) => salesDuration(a.created_at, a.modified_at))
 
   const fast = Math.round(percentile(prices, 20))
   const balanced = Math.round(percentile(prices, 50))
   const profit = Math.round(percentile(prices, 80))
 
-  const avgDuration = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
-  const minPrice = prices[0]
-  const maxPrice = prices[prices.length - 1]
+  const avgDuration = durations.length
+    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+    : 0
+  const minPrice = prices[0] ?? 0
+  const maxPrice = prices[prices.length - 1] ?? 0
   const avgSimilarity = Math.round(analogs.reduce((s, a) => s + a.similarity, 0) / analogs.length * 100)
 
-  const bargainCount = analogs.filter((a) => a.sold_price < a.original_price).length
-  const bargainPct = Math.round((bargainCount / analogs.length) * 100)
+  const bargainCount = sold.filter((a) => a.sold_price < a.original_price).length
+  const bargainPct = sold.length ? Math.round((bargainCount / sold.length) * 100) : 0
+
+  const activeCount = analogs.length - sold.length
 
   const explanation = buildExplanation({
-    count: analogs.length,
+    count: sold.length,
+    activeCount,
     avgSimilarity,
     minPrice,
     maxPrice,
@@ -33,8 +39,8 @@ export function calculatePrice(analogs: Listing[]): PriceResponse {
     title: a.title,
     description: a.description,
     image_url: a.image_url,
-    sold_price: a.sold_price,
-    sales_duration: salesDuration(a.created_at, a.modified_at),
+    sold_price: a.status === 'SOLD' ? a.sold_price : a.original_price,
+    sales_duration: a.status === 'SOLD' ? salesDuration(a.created_at, a.modified_at) : null,
     created_at: a.created_at,
     status: a.status,
   }))
@@ -44,6 +50,7 @@ export function calculatePrice(analogs: Listing[]): PriceResponse {
 
 function buildExplanation(p: {
   count: number
+  activeCount: number
   avgSimilarity: number
   minPrice: number
   maxPrice: number
@@ -58,6 +65,12 @@ function buildExplanation(p: {
   lines.push(
     `Ціну розраховано на основі ${p.count} схожих проданих товарів (середня схожість ${p.avgSimilarity}%).`
   )
+
+  if (p.activeCount > 0) {
+    lines.push(
+      `Також знайдено ${p.activeCount} активних оголошень з аналогічним товаром.`
+    )
+  }
 
   lines.push(
     `Діапазон цін аналогів: ${p.minPrice}–${p.maxPrice} грн. У середньому товари продавались за ${p.avgDuration} дн.`

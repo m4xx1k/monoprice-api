@@ -8,10 +8,12 @@ type SearchOptions = {
   category_id?: number
   limit?: number
   candidate_ids?: number[]
+  statuses?: string[]
 }
 
 export async function searchListings(options: SearchOptions): Promise<Listing[]> {
-  const { embedding, category_id, limit = 10, candidate_ids } = options
+  const { embedding, category_id, limit = 10, candidate_ids, statuses } = options
+  const filter_statuses = statuses?.length ? statuses : null
 
   // If we have pre-filtered candidate IDs, search only among them
   if (candidate_ids?.length) {
@@ -19,6 +21,7 @@ export async function searchListings(options: SearchOptions): Promise<Listing[]>
       query_embedding: embedding,
       candidate_ids,
       match_count: limit,
+      filter_statuses,
     })
 
     if (error) {
@@ -32,6 +35,7 @@ export async function searchListings(options: SearchOptions): Promise<Listing[]>
     query_embedding: embedding,
     match_count: limit,
     filter_category: category_id ?? null,
+    filter_statuses,
   })
 
   if (error) {
@@ -88,8 +92,7 @@ export async function findCandidateIds(title: string, categoryId: number): Promi
     .from('listings')
     .select('id')
     .eq('category_id', categoryId)
-    .eq('status', 'SOLD')
-    .gt('sold_price', 0)
+    .in('status', ['SOLD', 'ACTIVE'])
     .not('embedding', 'is', null)
 
   // Add text search filter if we have keywords

@@ -27,11 +27,12 @@ async function embedDescription(title: string, description: string) {
   return generateEmbedding(query)
 }
 
-/** Search for similar sold listings and populate their image URLs */
+/** Search for similar listings and populate their image URLs */
 async function findAnalogs(embedding: number[], category?: number, candidateIds?: number[]) {
   const rawAnalogs = await searchListings({
     embedding,
     category_id: category,
+    statuses: ['SOLD', 'ACTIVE'],
     ...(candidateIds?.length ? { candidate_ids: candidateIds } : {}),
   })
   return populateImageUrls(rawAnalogs)

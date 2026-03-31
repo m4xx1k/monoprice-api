@@ -38,65 +38,79 @@ create index if not exists listings_status_idx   on listings(status);
 create index if not exists listings_embedding_idx on listings using hnsw (embedding vector_cosine_ops);
 
 -- 4. Vector search RPC
+--    filter_category = null  → no category filter
+--    filter_statuses = null  → no status filter
 create or replace function match_listings(
-  query_embedding vector(1536),
-  match_count     int  default 20,
-  filter_category int  default null,
-  filter_status   text default 'SOLD'
+  query_embedding   vector(1536),
+  match_count       int    default 20,
+  filter_category   int    default null,
+  filter_statuses   text[] default null
 )
 returns table (
-  id             bigint,
-  external_id    uuid,
-  title          text,
-  description    text,
-  image_url      text,
-  sold_price     numeric,
-  original_price numeric,
-  status         text,
-  created_at     timestamptz,
-  modified_at    timestamptz,
-  similarity     float
+  id               bigint,
+  external_id      uuid,
+  title            text,
+  description      text,
+  image_url        text,
+  sold_price       numeric,
+  original_price   numeric,
+  status           text,
+  sold_via_bargain boolean,
+  category_id      int,
+  category_name    text,
+  created_at       timestamptz,
+  modified_at      timestamptz,
+  similarity       float
 )
 language sql stable as $$
   select
-    id, external_id, title, description, image_url, sold_price, original_price,
-    status, created_at, modified_at,
-    1 - (embedding <=> query_embedding) as similarity
-  from listings
-  where category_id = filter_category
-    and status = 'SOLD'
-  order by embedding <=> query_embedding
+    l.id, l.external_id, l.title, l.description, l.image_url,
+    l.sold_price, l.original_price, l.status, l.sold_via_bargain,
+    l.category_id, l.category_name, l.created_at, l.modified_at,
+    1 - (l.embedding <=> query_embedding) as similarity
+  from listings l
+  where l.embedding is not null
+    and (filter_category is null or l.category_id = filter_category)
+    and (filter_statuses is null or l.status = any(filter_statuses))
+  order by l.embedding <=> query_embedding
   limit match_count;
 $$;
 
 
 -- 5. Vector search among specific IDs (used after init pre-filters candidates)
+--    filter_statuses = null  → no status filter
 create or replace function match_listings_by_ids(
-  query_embedding vector(1536),
-  candidate_ids   bigint[],
-  match_count     int default 10
+  query_embedding   vector(1536),
+  candidate_ids     bigint[],
+  match_count       int    default 10,
+  filter_statuses   text[] default null
 )
 returns table (
-  id             bigint,
-  external_id    uuid,
-  title          text,
-  description    text,
-  image_url      text,
-  sold_price     numeric,
-  original_price numeric,
-  status         text,
-  created_at     timestamptz,
-  modified_at    timestamptz,
-  similarity     float
+  id               bigint,
+  external_id      uuid,
+  title            text,
+  description      text,
+  image_url        text,
+  sold_price       numeric,
+  original_price   numeric,
+  status           text,
+  sold_via_bargain boolean,
+  category_id      int,
+  category_name    text,
+  created_at       timestamptz,
+  modified_at      timestamptz,
+  similarity       float
 )
 language sql stable as $$
   select
-    id, external_id, title, description, image_url, sold_price, original_price,
-    status, created_at, modified_at,
-    1 - (embedding <=> query_embedding) as similarity
-  from listings
-  where id = any(candidate_ids)
-    and embedding is not null
-  order by embedding <=> query_embedding
+    l.id, l.external_id, l.title, l.description, l.image_url,
+    l.sold_price, l.original_price, l.status, l.sold_via_bargain,
+    l.category_id, l.category_name, l.created_at, l.modified_at,
+    1 - (l.embedding <=> query_embedding) as similarity
+  from listings l
+  where l.id = any(candidate_ids)
+    and l.embedding is not null
+    and (filter_statuses is null or l.status = any(filter_statuses))
+  order by l.embedding <=> query_embedding
   limit match_count;
 $$;

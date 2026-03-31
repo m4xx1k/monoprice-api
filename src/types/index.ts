@@ -20,6 +20,9 @@ export type Listing = {
   sold_price: number
   original_price: number
   status: string
+  sold_via_bargain: boolean | null
+  category_id: number
+  category_name: string | null
   created_at: string
   modified_at: string
   similarity: number
