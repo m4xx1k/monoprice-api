@@ -58,7 +58,7 @@ export type SimilarProduct = {
   description: string | null
   image_url: string | null
   sold_price: number
-  sales_duration: number
+  sales_duration: number | null
   created_at: string
   status: string
 }
