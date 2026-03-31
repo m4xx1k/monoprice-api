@@ -35,6 +35,8 @@ export function calculatePrice(analogs: Listing[]): PriceResponse {
     image_url: a.image_url,
     sold_price: a.sold_price,
     sales_duration: salesDuration(a.created_at, a.modified_at),
+    created_at: a.created_at,
+    status: a.status,
   }))
 
   return { price: { fast, balanced, profit }, explanation, similar_products }

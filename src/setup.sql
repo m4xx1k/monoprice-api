@@ -24,12 +24,13 @@ create table if not exists listings (
 );
 
 -- 3. Create photos table
+-- NOTE: в реальній БД типи text (не uuid), advertisement_id nullable
 create table if not exists photos (
-  s3_key           uuid primary key,
-  advertisement_id uuid not null
+  s3_key           text primary key,
+  advertisement_id text
 );
 
-create index if not exists photos_advertisement_idx on photos(advertisement_id);
+create index if not exists adv_photos_idx on photos(advertisement_id);
 
 -- 4. Indexes
 create index if not exists listings_category_idx on listings(category_id);
@@ -51,6 +52,7 @@ returns table (
   image_url      text,
   sold_price     numeric,
   original_price numeric,
+  status         text,
   created_at     timestamptz,
   modified_at    timestamptz,
   similarity     float
@@ -58,7 +60,7 @@ returns table (
 language sql stable as $$
   select
     id, external_id, title, description, image_url, sold_price, original_price,
-    created_at, modified_at,
+    status, created_at, modified_at,
     1 - (embedding <=> query_embedding) as similarity
   from listings
   where category_id = filter_category
@@ -82,6 +84,7 @@ returns table (
   image_url      text,
   sold_price     numeric,
   original_price numeric,
+  status         text,
   created_at     timestamptz,
   modified_at    timestamptz,
   similarity     float
@@ -89,68 +92,11 @@ returns table (
 language sql stable as $$
   select
     id, external_id, title, description, image_url, sold_price, original_price,
-    created_at, modified_at,
+    status, created_at, modified_at,
     1 - (embedding <=> query_embedding) as similarity
   from listings
   where id = any(candidate_ids)
     and embedding is not null
   order by embedding <=> query_embedding
   limit match_count;
-$$;
-
--- 6. Analytics RPC functions
-
-create or replace function get_status_distribution()
-returns table (status text, count bigint)
-language sql stable as $$
-  select status, count(*)
-  from listings
-  group by status
-  order by count(*) desc;
-$$;
-
-create or replace function get_category_distribution()
-returns table (category_id int, category_name text, total bigint, with_embedding bigint)
-language sql stable as $$
-  select
-    category_id,
-    category_name,
-    count(*) as total,
-    count(embedding) as with_embedding
-  from listings
-  group by category_id, category_name
-  order by total desc;
-$$;
-
-create or replace function get_price_stats()
-returns table (
-  category_name text,
-  sold_count bigint,
-  avg_sold_price numeric,
-  median_sold_price numeric,
-  min_sold_price numeric,
-  max_sold_price numeric,
-  avg_bargain_discount numeric
-)
-language sql stable as $$
-  select
-    category_name,
-    count(*) as sold_count,
-    round(avg(sold_price), 2) as avg_sold_price,
-    round(percentile_cont(0.5) within group (order by sold_price)::numeric, 2) as median_sold_price,
-    min(sold_price) as min_sold_price,
-    max(sold_price) as max_sold_price,
-    round(avg(
-      case when sold_via_bargain and original_price > 0
-        then (1 - sold_price / original_price) * 100
-        else null
-      end
-    ), 1) as avg_bargain_discount
-  from listings
-  where
-    status = 'SOLD'
-    and embedding is not null
-    and sold_price > 0
-  group by category_name
-  order by sold_count desc;
 $$;

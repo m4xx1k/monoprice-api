@@ -87,282 +87,130 @@ ACTIVE → RESERVED → ORDER_PROCESSING → SOLD
 
 ---
 
-## Наш флоу
+## Поточний стан застосунку (MVP Stage 1)
 
-### Екран 1: Завантаження товару
+### Стек технологій
 
-```
-Юзер завантажує фото (1-5)
-    │
-    ├──→ POST /api/analyze-photo (фонова задача)
-    │    Vision AI аналізує фото → бренд, модель, стан, деталі
-    │    Працює поки юзер пише опис (~2-3 сек)
-    │
-Юзер вводить опис товару
-Юзер обирає категорію (опціонально)
-    │
-    └──→ Натискає "Оцінити ціну"
-```
+| Компонент | Технологія | Призначення |
+|-----------|-----------|-------------|
+| Backend | Node.js + Hono + TypeScript | Веб-сервер з REST API |
+| База даних | Supabase (PostgreSQL + pgvector) | Зберігання оголошень + векторний пошук |
+| AI (embeddings) | OpenAI text-embedding-3-small (1536 dims) | Семантичні вектори для пошуку аналогів |
+| AI Gateway | OpenRouter | Єдиний шлюз до різних AI-моделей |
 
-### Екран 2: Результат (SSE stream, ≤ 2-3 сек)
+### Структура проєкту
 
 ```
-1. Формуємо embedding з опису + vision output + категорія
-2. Vector search — шукаємо схожі товари в Supabase (pgvector)
-   Фільтри: категорія, дата публікації/продажу, статус
-3. SQL аналітика — агрегуємо статистику по аналогах
-   (sold vs active ціни, тренди, розкид)
-4. [Опціонально] LLM — формує пояснення та рекомендації
-
-Результат:
-├── Рекомендована ціна + діапазон
-├── 3 стратегії (fast / balanced / max profit)
-├── Пояснення з факторами ціноутворення
-├── Список компаративів (аналогічні товари)
-└── Confidence score
-```
-
-### Чому цей флоу швидкий
-
-Vision працює у фоні поки юзер пише опис. Коли він натискає "Оцінити" — vision вже готовий. Залишається тільки embedding + search + pricing = ~2-3 секунди. Вписуємось у ліміт 5 секунд з запасом.
-
----
-
-## Техстек
-
-| Компонент | Технологія | Обґрунтування |
-|-----------|-----------|---------------|
-| Backend | Node.js + Hono + TypeScript | Легкий, SSE з коробки, швидкий старт |
-| Database + Vectors | Supabase (PostgreSQL + pgvector) | Одна БД для всього: вектори, аналітика, SQL |
-| AI Gateway | OpenRouter | Один API для різних моделей, швидке тестування |
-| Vision | Claude Sonnet / GPT-4o (через OpenRouter) | Розпізнавання товару з фото |
-| Embeddings | OpenAI text-embedding-3-small (через OpenRouter) | 1536 dims, дешево, швидко |
-| LLM Pricing | Claude Sonnet (через OpenRouter) | Structured output, якісний reasoning |
-| Deploy | Railway | Автодеплой з GitHub, швидко |
-| Mobile | Swift (iOS) | Нативний клієнт |
-
----
-
-## Архітектура
-
-```
-┌──────────────┐
-│  Swift App   │
-│  (iOS)       │
-└──────┬───────┘
-       │
-       ▼
-┌──────────────────────────────────────┐
-│  Node.js API  (Hono)                 │
-│                                      │
-│  POST /api/analyze-photo             │
-│    → OpenRouter Vision API           │
-│    → VisionResult (brand, model...)  │
-│                                      │
-│  POST /api/price  (SSE stream)       │
-│    → OpenRouter Embeddings API       │
-│    → Supabase pgvector search        │
-│    → Supabase SQL analytics          │
-│    → [Optional] OpenRouter LLM       │
-│    → PriceResult                     │
-└──────────────┬───────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────┐
-│  Supabase (PostgreSQL + pgvector)    │
-│                                      │
-│  listings table                      │
-│    - title, description              │
-│    - original_price, sold_price      │
-│    - status, sold_via_bargain        │
-│    - category_id                     │
-│    - created_at, modified_at         │
-│    - embedding vector(1536)          │
-│                                      │
-│  RPC: match_listings()              │
-│  Views: category_stats, price_trends│
-└──────────────────────────────────────┘
-```
-
----
-
-## Структура проєкту
-
-```
-monopricer-api/
+monoprice/
 ├── src/
-│   ├── index.ts                 # Hono сервер + middleware
-│   ├── config/
-│   │   └── env.ts               # Env vars з zod валідацією
+│   ├── index.ts              # Hono-сервер, health check, middleware
+│   ├── config/env.ts         # Валідація змінних оточення (Zod)
 │   ├── db/
-│   │   ├── supabase.ts          # Supabase клієнт
-│   │   └── openrouter.ts        # OpenRouter клієнт (OpenAI SDK)
-│   ├── routes/
-│   │   ├── analyze.ts           # POST /api/analyze-photo
-│   │   └── price.ts             # POST /api/price (SSE)
+│   │   ├── supabase.ts       # Supabase клієнт
+│   │   └── openrouter.ts     # OpenAI SDK → OpenRouter
+│   ├── routes/product.ts     # API ендпоінти (init, description, cleanup)
 │   ├── services/
-│   │   ├── vision.ts            # Аналіз фото через Vision API
-│   │   ├── embeddings.ts        # Генерація embeddings
-│   │   ├── search.ts            # Vector search + SQL аналітика
-│   │   └── pricer.ts            # Pricing (LLM або SQL варіант)
-│   └── types/
-│       └── index.ts             # Всі типи (контракти з клієнтом)
-├── supabase-setup.sql           # SQL для налаштування БД
-├── .env.example                 # Шаблон змінних оточення
-├── package.json
-├── tsconfig.json
-└── README.md
+│   │   ├── embeddings.ts     # Генерація embedding-векторів
+│   │   ├── search.ts         # Векторний пошук + фото
+│   │   └── pricer.ts         # Розрахунок ціни (перцентилі)
+│   └── types/index.ts        # TypeScript інтерфейси
+├── scripts/
+│   ├── seed.ts               # Імпорт датасету в Supabase
+│   ├── generate-embeddings.ts # Генерація ембедінгів для всіх оголошень
+│   ├── inspect-db.ts         # Інспекція стану бази
+│   └── csv-to-json.ts        # Конвертер CSV → JSON
+├── data/                     # Датасет хакатону (~60k оголошень)
+└── docs/stage-1.md           # План Stage 1
 ```
 
----
+### API ендпоінти
 
-## API контракти
+#### `GET /health`
+Health check. Повертає `{ status: "ok" }`.
 
-### `POST /api/analyze-photo`
+#### `POST /v1/product/init`
+Попередній пошук кандидатів за назвою + категорією. Кешує ID кандидатів в пам'яті.
 
-Викликається одразу при завантаженні фото (у фоні).
+**Вхід:** multipart form — `id`, `title`, `category`, `photos`
+**Вихід:** 204 (без тіла)
 
-**Request:**
+#### `POST /v1/product/description`
+Основний ендпоінт прайсингу. Генерує рекомендовану ціну на основі аналогів.
+
+**Вхід:** JSON — `id`, `title`, `description`, `category?`
+
+**Пайплайн:**
+1. **Embedding** (~400ms) — генерація вектора з title + description
+2. **Пошук аналогів** (~500ms) — векторний пошук серед SOLD оголошень (cosine similarity)
+3. **Фото** (~100ms) — підтягування URL фото з таблиці photos
+4. **Розрахунок ціни** (~50ms) — перцентильний метод:
+   - `fast` = 20-й перцентиль (швидкий продаж)
+   - `balanced` = 50-й перцентиль (медіана)
+   - `profit` = 80-й перцентиль (максимальний прибуток)
+
+**Вихід:**
 ```json
 {
-  "photos": ["base64..."]
+  "price": { "fast": 3000, "balanced": 3500, "profit": 4200 },
+  "explanation": "Ціну розраховано на основі 8 схожих проданих товарів...",
+  "similar_products": [
+    {
+      "external_id": "uuid",
+      "title": "...",
+      "image_url": "https://resale-media.monobazar.com.ua/...",
+      "sold_price": 3500,
+      "sales_duration": 7
+    }
+  ]
 }
 ```
 
-**Response:**
-```json
-{
-  "brand": "Apple",
-  "model": "iPhone 13",
-  "condition": "good",
-  "color": "синій",
-  "year": 2021,
-  "details": "Смартфон, задня панель, подряпина в нижньому лівому куті"
-}
-```
+**Час відповіді:** ~1–2 секунди (ціль < 5 сек).
 
-### `POST /api/price`
+#### `POST /v1/product/cleanup`
+Очищення кешу кандидатів після прайсингу.
 
-SSE stream. Викликається коли юзер натисне "Оцінити".
+**Вхід:** JSON — `id`
+**Вихід:** 204
 
-**Request:**
-```json
-{
-  "description": "iPhone 13 128GB, стан хороший",
-  "vision_result": { "...результат з analyze-photo..." },
-  "category_id": 5,
-  "photos": ["base64..."]
-}
-```
+### База даних (Supabase)
 
-**SSE Events:**
-```
-data: {"type":"step","step":"search","status":"processing","message":"Шукаю аналоги..."}
-data: {"type":"step","step":"search","status":"done","message":"Знайшов 18 схожих товарів","data":{"count":18}}
-data: {"type":"step","step":"pricing","status":"processing","message":"Рахую ціну..."}
-data: {"type":"result","data":{"recommended_price":8500,...}}
-```
+**Таблиці:**
+- `listings` — оголошення з embedding-векторами (vector(1536)), 14 колонок
+- `photos` — фото оголошень (s3_key text → advertisement_id text)
+- `listings_raw`, `listings_clean` — допоміжні таблиці від імпорту (не використовуються в коді)
 
-**Result payload:**
-```json
-{
-  "recommended_price": 8500,
-  "price_range": { "min": 7200, "max": 10000 },
-  "confidence": "high",
-  "strategies": {
-    "fast": { "price": 7200, "estimated_days": "1-3", "tip": "..." },
-    "balanced": { "price": 8500, "estimated_days": "5-10", "tip": "..." },
-    "max_profit": { "price": 10000, "estimated_days": "14-30", "tip": "..." }
-  },
-  "explanation": "Ціна базується на 18 аналогах...",
-  "pricing_factors": [
-    { "factor": "Бренд Apple", "impact": "+20%" },
-    { "factor": "Подряпини", "impact": "-5%" }
-  ],
-  "comparables": [
-    { "description": "iPhone 13 128GB білий", "price": 8200, "is_sold": true, "similarity": 0.94 }
-  ],
-  "detected_item": {
-    "brand": "Apple",
-    "model": "iPhone 13",
-    "condition": "good",
-    "color": "синій",
-    "year": 2021,
-    "details": "..."
-  }
-}
-```
+**Стан даних:**
+
+| Метрика | Значення |
+|---------|---------|
+| Всього оголошень | 59 790 |
+| SOLD | 11 398 (19%) |
+| ACTIVE | 3 129 (5%) |
+| DELETED | 45 010 (75%) |
+| З embedding | 9 624 (поки одна категорія) |
+| Фото | 60 930 |
+
+**Індекси:**
+- HNSW на `embedding` (cosine distance) — швидкий векторний пошук
+- B-tree на `category_id`, `status`
+
+**RPC функції:**
+- `match_listings()` — векторний пошук по всій базі з фільтром по категорії
+- `match_listings_by_ids()` — векторний пошук серед попередньо відібраних кандидатів
+
+### Ключові архітектурні рішення
+
+1. **Двокроковий пайплайн (init → description)** — спочатку звужуємо пошук з 60k до ~200 кандидатів за ключовими словами, потім шукаємо серед них за вектором
+2. **Тільки SOLD дані** — ціни рахуються лише на основі фактично проданих товарів (sold_price), а не бажаних цін продавців
+3. **Перцентильний прайсинг (без LLM)** — швидко, детерміновано, без додаткових API-витрат
+4. **In-memory кеш кандидатів** — простий Map, втрачається при рестарті сервера
+
+### Що ще не реалізовано
+
+- Vision-аналіз фото (розпізнавання бренду, стану, моделі)
+- LLM-пояснення ціни з аргументацією
+- UI/мобільний інтерфейс
+- Деплой (планується Railway)
 
 ---
-
-## План імплементації
-
-### Фаза 1: Фундамент (зараз)
-
-- [x] Структура проєкту, типи, конфігурація
-- [ ] Supabase: створити таблицю listings, RPC, views
-- [ ] OpenRouter: підключити vision + embeddings
-- [ ] Endpoint POST /api/analyze-photo
-- [ ] Endpoint POST /api/price (SSE каркас)
-- [ ] Базовий SQL-based pricer (працює без LLM)
-
-### Фаза 2: Дата
-
-- [ ] Завантажити датасет у Supabase
-- [ ] Чистка: видалити price=0, outliers, дублі
-- [ ] Маппінг category_id → category_dictionary.json
-- [ ] Генерація embeddings для всіх лістингів
-- [ ] Заливка embeddings у Supabase
-
-### Фаза 3: Якість прайсингу
-
-- [ ] Тюнінг vector search (фільтри, ваги sold vs active)
-- [ ] SQL аналітика: sold_price vs original_price, торг, тренди
-- [ ] LLM-based pricer з промптом
-- [ ] A/B: SQL-only vs LLM — порівняти якість
-
-### Фаза 4: Полірування
-
-- [ ] Eval pipeline: 200 лістингів → метрики (MAE, MAPE, hit rate)
-- [ ] Edge cases: рідкісні товари, дуже дорогі, DELETED
-- [ ] Оптимізація швидкості (паралелізація, кешування)
-- [ ] Деплой на Railway
-
-### Фаза 5: Бонуси
-
-- [ ] Мобільний UI концепт / дизайн
-- [ ] Price trends графік
-- [ ] Використання sold_via_bargain для коригування ціни
-- [ ] Аналіз DELETED оголошень (що не продається)
-
----
-
-## Ключові інсайти з датасету
-
-Речі які треба використати для якісного прайсингу:
-
-- **sold_price > original_price** — `sold_price` це реальна ціна, `original_price` — бажання продавця. Рекомендацію базуємо на `sold_price`.
-- **sold_via_bargain** — якщо true, значить фінальна ціна нижча за оригінальну через торг. Можна рахувати середній % знижки через торг по категоріях.
-- **DELETED** — оголошення що не продалися. Якщо товар схожий на DELETED — це сигнал що ціна завищена або товар непопулярний.
-- **modified_at для SOLD** — дата продажу. Дозволяє будувати тренди: ціна на iPhone падає кожен вересень коли виходить новий.
-- **Час між created_at і modified_at (для SOLD)** — скільки днів продавався. Це основа для стратегій fast/balanced/max.
-
----
-
-## Env змінні
-
-```bash
-# Supabase
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_SERVICE_KEY=eyJ...
-
-# OpenRouter
-OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_VISION_MODEL=anthropic/claude-sonnet-4-20250514
-OPENROUTER_PRICING_MODEL=anthropic/claude-sonnet-4-20250514
-OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
-
-# Server
-PORT=3000
-USE_LLM=true
-```
