@@ -19,6 +19,7 @@ export type Listing = {
   image_url: string | null
   sold_price: number
   original_price: number
+  status: string
   created_at: string
   modified_at: string
   similarity: number
@@ -55,6 +56,8 @@ export type SimilarProduct = {
   image_url: string | null
   sold_price: number
   sales_duration: number
+  created_at: string
+  status: string
 }
 
 export type PriceResponse = {

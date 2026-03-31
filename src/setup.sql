@@ -52,6 +52,7 @@ returns table (
   image_url      text,
   sold_price     numeric,
   original_price numeric,
+  status         text,
   created_at     timestamptz,
   modified_at    timestamptz,
   similarity     float
@@ -59,7 +60,7 @@ returns table (
 language sql stable as $$
   select
     id, external_id, title, description, image_url, sold_price, original_price,
-    created_at, modified_at,
+    status, created_at, modified_at,
     1 - (embedding <=> query_embedding) as similarity
   from listings
   where category_id = filter_category
@@ -83,6 +84,7 @@ returns table (
   image_url      text,
   sold_price     numeric,
   original_price numeric,
+  status         text,
   created_at     timestamptz,
   modified_at    timestamptz,
   similarity     float
@@ -90,7 +92,7 @@ returns table (
 language sql stable as $$
   select
     id, external_id, title, description, image_url, sold_price, original_price,
-    created_at, modified_at,
+    status, created_at, modified_at,
     1 - (embedding <=> query_embedding) as similarity
   from listings
   where id = any(candidate_ids)
