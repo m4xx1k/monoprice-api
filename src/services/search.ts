@@ -64,8 +64,6 @@ export async function populateImageUrls(listings: Listing[]): Promise<Listing[]>
     return listings
   }
 
-  console.log(`[photos] queried external_ids: [${externalIds.join(', ')}]`)
-  console.log(`[photos] got ${data?.length ?? 0} photos:`, JSON.stringify(data))
 
   // Map: advertisement_id → first s3_key
   const photoMap = new Map<string, string>()

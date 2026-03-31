@@ -1,0 +1,193 @@
+import type { Listing, MarketMetrics, EnrichedPriceResponse, MarketTemplate, EvidenceProduct } from '../types/index.js'
+
+const SIMILARITY_THRESHOLD = 0.50
+const MIN_ANALOGS = 3
+
+// ── Public API ──
+
+export function filterAnalogs(analogs: Listing[]): Listing[] {
+  return analogs.filter((a) => a.similarity >= SIMILARITY_THRESHOLD)
+}
+
+export function hasEnoughData(analogs: Listing[]): boolean {
+  return analogs.length >= MIN_ANALOGS
+}
+
+export function buildEnrichedResponse(analogs: Listing[]): EnrichedPriceResponse {
+  const metrics = computeMetrics(analogs)
+  const templates = generateTemplates(metrics)
+  const confidenceLabel = getConfidenceLabel(metrics.confidenceScore)
+
+  const bargainMarkup = metrics.bargainPercentage > 30 ? metrics.avgBargainDiscount / 100 : 0
+
+  const fastListingPrice = metrics.p20
+  const balancedListingPrice = Math.round(metrics.p50 * (1 + bargainMarkup))
+  const profitListingPrice = Math.round(metrics.p80 * (1 + bargainMarkup))
+
+  return {
+    pricing: {
+      strategies: {
+        fast: {
+          name: 'Швидкий продаж',
+          expected_revenue: metrics.p20,
+          recommended_listing_price: fastListingPrice,
+          estimated_days: '1-3 дні',
+        },
+        balanced: {
+          name: 'Оптимальна ціна',
+          expected_revenue: metrics.p50,
+          recommended_listing_price: balancedListingPrice,
+          estimated_days: '5-10 днів',
+          badge: 'Рекомендуємо',
+        },
+        profit: {
+          name: 'Максимальний прибуток',
+          expected_revenue: metrics.p80,
+          recommended_listing_price: profitListingPrice,
+          estimated_days: '14+ днів',
+        },
+      },
+    },
+    market_arguments: {
+      confidence_score: metrics.confidenceScore,
+      confidence_label: confidenceLabel,
+      templates,
+    },
+    evidence: {
+      total_found: analogs.length,
+      top_similar_products: analogs.slice(0, 5).map((a) => toEvidenceProduct(a)),
+    },
+  }
+}
+
+// ── Step 2: Data Science metrics ──
+
+function computeMetrics(analogs: Listing[]): MarketMetrics {
+  const sold = analogs.filter((a) => a.status === 'SOLD')
+  const prices = sold.map((a) => a.sold_price).sort((a, b) => a - b)
+  const durations = sold.map((a) => salesDuration(a.created_at, a.modified_at))
+
+  const p20 = Math.round(percentile(prices, 20))
+  const p50 = Math.round(percentile(prices, 50))
+  const p80 = Math.round(percentile(prices, 80))
+
+  const medianDays = Math.round(percentile(durations.sort((a, b) => a - b), 50))
+
+  // Bargain analysis
+  const bargainItems = sold.filter(
+    (a) => a.sold_via_bargain || a.sold_price < a.original_price
+  )
+  const bargainPercentage = sold.length
+    ? Math.round((bargainItems.length / sold.length) * 100)
+    : 0
+
+  let avgBargainDiscount = 0
+  if (bargainItems.length > 0) {
+    const discounts = bargainItems
+      .filter((a) => a.original_price > 0)
+      .map((a) => ((a.original_price - a.sold_price) / a.original_price) * 100)
+    avgBargainDiscount = discounts.length
+      ? Math.round(discounts.reduce((s, d) => s + d, 0) / discounts.length)
+      : 0
+  }
+
+  // Confidence score
+  const top5 = analogs.slice(0, 5)
+  const avgSimilarity = top5.reduce((s, a) => s + a.similarity, 0) / top5.length
+  let confidenceScore = Math.round(avgSimilarity * 100)
+
+  if (analogs.length < 5) confidenceScore -= 5
+  if (p50 > 0 && (p80 - p20) / p50 > 0.4) confidenceScore -= 5
+
+  confidenceScore = Math.max(0, Math.min(100, confidenceScore))
+
+  return { p20, p50, p80, medianDays, bargainPercentage, avgBargainDiscount, confidenceScore, soldCount: sold.length }
+}
+
+// ── Step 3: Dynamic templates ──
+
+function generateTemplates(m: MarketMetrics): MarketTemplate[] {
+  const templates: MarketTemplate[] = []
+
+  // Rule 1: Demand / liquidity
+  if (m.medianDays <= 3) {
+    templates.push({
+      icon: 'trend-up',
+      title: 'Високий попит',
+      text: `Товари розлітаються миттєво — в середньому за ${m.medianDays} дн.`,
+    })
+  } else if (m.medianDays > 14) {
+    templates.push({
+      icon: 'clock',
+      title: 'Специфічний товар',
+      text: `Будьте готові почекати свого покупця — в середньому близько ${m.medianDays} днів.`,
+    })
+  } else {
+    templates.push({
+      icon: 'trend-up',
+      title: 'Стабільний попит',
+      text: `Схожі товари продаються в середньому за ${m.medianDays} днів.`,
+    })
+  }
+
+  // Rule 2: Bargain
+  if (m.bargainPercentage > 30) {
+    const markup = m.avgBargainDiscount
+    templates.push({
+      icon: 'handshake',
+      title: 'Схильність до торгу',
+      text: `У ${m.bargainPercentage}% випадків покупці просять знижку. Ми автоматично заклали +${markup}% до стартової ціни в оголошенні.`,
+    })
+  } else {
+    templates.push({
+      icon: 'shield',
+      title: 'Тверда ціна',
+      text: `${100 - m.bargainPercentage}% таких товарів продаються без торгу.`,
+    })
+  }
+
+  // Rule 3: Price spread
+  if (m.p50 > 0 && (m.p80 - m.p20) / m.p50 > 0.3) {
+    templates.push({
+      icon: 'chart-bar',
+      title: 'Великий розкид цін',
+      text: `На ринку ціни варіюються від ${m.p20} до ${m.p80} грн. Детально опишіть переваги вашого товару.`,
+    })
+  }
+
+  return templates
+}
+
+// ── Helpers ──
+
+function getConfidenceLabel(score: number): string {
+  if (score >= 85) return 'Висока точність оцінки'
+  if (score >= 70) return 'Середня точність оцінки'
+  return 'Низька точність оцінки'
+}
+
+function toEvidenceProduct(a: Listing): EvidenceProduct {
+  return {
+    external_id: a.external_id,
+    title: a.title,
+    original_price: a.original_price,
+    sold_price: a.status === 'SOLD' ? a.sold_price : a.original_price,
+    similarity: Math.round(a.similarity * 100) / 100,
+    days_to_sell: salesDuration(a.created_at, a.modified_at),
+    image_url: a.image_url,
+  }
+}
+
+function percentile(arr: number[], p: number): number {
+  if (!arr.length) return 0
+  const idx = (p / 100) * (arr.length - 1)
+  const lower = Math.floor(idx)
+  const upper = Math.ceil(idx)
+  if (lower === upper) return arr[lower]
+  return arr[lower] + (arr[upper] - arr[lower]) * (idx - lower)
+}
+
+function salesDuration(createdAt: string, modifiedAt: string): number {
+  const diff = new Date(modifiedAt).getTime() - new Date(createdAt).getTime()
+  return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)))
+}

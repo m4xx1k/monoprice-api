@@ -1,13 +1,13 @@
 import { Hono } from 'hono'
-import { generateEmbedding,  } from '../services/embeddings.js'
+import { generateEmbedding } from '../services/embeddings.js'
 import { searchListings, findCandidateIds, populateImageUrls } from '../services/search.js'
-import { calculatePrice } from '../services/pricer.js'
+import { filterAnalogs, hasEnoughData, buildEnrichedResponse } from '../services/pricer-v2.js'
 import type { InitBody, DescriptionBody } from '../types/index.js'
 
 // Pre-filtered candidate IDs, populated by /init and consumed by /description
 const candidateCache = new Map<string, number[]>()
 
-const product = new Hono()
+const productV2 = new Hono()
 
 // ── Helpers ──
 
@@ -27,22 +27,11 @@ async function embedDescription(title: string, description: string) {
   return generateEmbedding(query)
 }
 
-/** Search for similar listings and populate their image URLs */
-async function findAnalogs(embedding: number[], category?: number, candidateIds?: number[]) {
-  const rawAnalogs = await searchListings({
-    embedding,
-    category_id: category,
-    statuses: ['SOLD', 'ACTIVE'],
-    ...(candidateIds?.length ? { candidate_ids: candidateIds } : {}),
-  })
-  return populateImageUrls(rawAnalogs)
-}
-
-// ── POST /init ──
+// ── POST /v1/product/init ──
 // Accepts multipart form with photos. Finds candidate listing IDs
 // by title+category and caches them for the subsequent /description call.
 
-product.post('/init', async (c) => {
+productV2.post('/init', async (c) => {
   const raw = await c.req.parseBody({ all: true })
   const body = parseInitBody(raw)
   if (!body) {
@@ -59,10 +48,10 @@ product.post('/init', async (c) => {
   return c.body(null, 204)
 })
 
-// ── POST /description ──
-// Pipeline: embed query → search analogs (narrowed by cached candidates) → calculate price
+// ── POST /v1/product/description ──
+// Pipeline: embed → search → filter (similarity threshold) → compute metrics → respond
 
-product.post('/description', async (c) => {
+productV2.post('/description', async (c) => {
   const body = await c.req.json<DescriptionBody>()
   if (!body.id || !body.description) {
     return c.json({ error: 'id and description are required' }, 400)
@@ -70,30 +59,53 @@ product.post('/description', async (c) => {
 
   const t0 = Date.now()
 
+  // Step 1a: Generate embedding
   const embedding = await embedDescription(body.title, body.description)
   const tEmbed = Date.now()
 
+  // Step 1b: Search analogs (narrowed by cached candidates if /init was called)
   const candidates = candidateCache.get(body.id)
-  const analogs = await findAnalogs(embedding, body.category, candidates)
+  const rawAnalogs = await searchListings({
+    embedding,
+    category_id: body.category,
+    statuses: ['SOLD', 'ACTIVE'],
+    limit: 20,
+    ...(candidates?.length ? { candidate_ids: candidates } : {}),
+  })
+  const analogs = await populateImageUrls(rawAnalogs)
   const tSearch = Date.now()
 
-  if (!analogs.length) {
-    return c.json({ error: 'Не знайдено схожих товарів' }, 422)
+  // Step 1c: Filter by similarity threshold
+  const filtered = filterAnalogs(analogs)
+
+  // Step 1d: Check minimum data requirement
+  if (!hasEnoughData(filtered)) {
+    console.log(`[pricing] id=${body.id} | insufficient data: ${filtered.length} analogs after filtering (${analogs.length} raw) | ${Date.now() - t0}ms`)
+    return c.json({
+      error: 'Недостатньо даних для точної оцінки',
+      details: {
+        total_found: analogs.length,
+        after_filter: filtered.length,
+        threshold: 0.75,
+        min_required: 3,
+      },
+    }, 422)
   }
 
-  const result = calculatePrice(analogs)
+  // Steps 2-4: Compute metrics, generate templates, build response
+  const result = buildEnrichedResponse(filtered)
   const tTotal = Date.now()
 
-  console.log(`[pricing] id=${body.id} | embedding: ${tEmbed - t0}ms | search+photos: ${tSearch - tEmbed}ms | total: ${tTotal - t0}ms | analogs: ${analogs.length} | candidates: ${candidates?.length ?? 'none (full search)'}`)
-  console.log(`[pricing] top match: "${analogs[0].title}" similarity=${analogs[0].similarity.toFixed(3)} sold=${analogs[0].sold_price}`)
+  console.log(`[pricing] id=${body.id} | embedding: ${tEmbed - t0}ms | search+photos: ${tSearch - tEmbed}ms | total: ${tTotal - t0}ms | raw: ${analogs.length} | filtered: ${filtered.length} | candidates: ${candidates?.length ?? 'none (full search)'}`)
+  console.log(`[pricing] confidence: ${result.market_arguments.confidence_score}% | fast: ${result.pricing.strategies.fast.expected_revenue} | balanced: ${result.pricing.strategies.balanced.expected_revenue} | profit: ${result.pricing.strategies.profit.expected_revenue}`)
 
   return c.json(result)
 })
 
-// ── POST /cleanup ──
+// ── POST /v1/product/cleanup ──
 // Removes cached candidates for a given product ID
 
-product.post('/cleanup', async (c) => {
+productV2.post('/cleanup', async (c) => {
   const body = await c.req.json<{ id: string }>()
   if (!body.id) {
     return c.json({ error: 'id is required' }, 400)
@@ -103,4 +115,4 @@ product.post('/cleanup', async (c) => {
   return c.body(null, 204)
 })
 
-export default product
+export default productV2
