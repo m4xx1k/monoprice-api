@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      args:
+        SUPABASE_URL: ${SUPABASE_URL}
+        SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+        OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+        OPENROUTER_VISION_MODEL: ${OPENROUTER_VISION_MODEL:-anthropic/claude-sonnet-4-20250514}
+        OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL:-text-embedding-3-small}
+        PORT: ${PORT:-3000}
+    ports:
+      - "4000:3000"
+    env_file:
+      - .env

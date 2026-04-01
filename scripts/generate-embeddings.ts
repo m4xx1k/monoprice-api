@@ -71,8 +71,8 @@ async function main() {
   }
 
   // --- stats ---
-  let totalQuery = supabase.from('listings').select('*', { count: 'exact', head: true })
-  let doneQuery = supabase.from('listings').select('*', { count: 'exact', head: true }).not('embedding', 'is', null)
+  let totalQuery = supabase.from('listings').select('*', { count: 'exact', head: true }).neq('status', 'DELETED')
+  let doneQuery = supabase.from('listings').select('*', { count: 'exact', head: true }).neq('status', 'DELETED').not('embedding', 'is', null)
 
   if (CATEGORY_FILTER !== null) {
     totalQuery = totalQuery.eq('category_id', CATEGORY_FILTER)
@@ -107,6 +107,7 @@ async function main() {
     let fetchQuery = supabase
       .from('listings')
       .select('id, title, description')
+      .neq('status', 'DELETED')
       .is('embedding', null)
       .order('id')
       .limit(BATCH_SIZE)
