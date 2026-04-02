@@ -46,6 +46,7 @@ export async function searchListings(options: SearchOptions): Promise<Listing[]>
   return (data ?? []) as Listing[]
 }
 
+// TODO: delete
 export async function populateImageUrls(listings: Listing[]): Promise<Listing[]> {
   const externalIds = listings.map((l) => l.external_id).filter(Boolean)
 
@@ -77,34 +78,4 @@ export async function populateImageUrls(listings: Listing[]): Promise<Listing[]>
     const s3Key = photoMap.get(l.external_id)
     return s3Key ? { ...l, image_url: `${MEDIA_BASE_URL}${s3Key}` } : l
   })
-}
-
-export async function findCandidateIds(title: string, categoryId: number): Promise<number[]> {
-  // Search by category + text similarity in title, only SOLD with embedding
-  const keywords = title
-    .split(/\s+/)
-    .filter((w) => w.length > 2)
-    .slice(0, 5)
-
-  let query = supabase
-    .from('listings')
-    .select('id')
-    .eq('category_id', categoryId)
-    .in('status', ['SOLD', 'ACTIVE'])
-    .not('embedding', 'is', null)
-
-  // Add text search filter if we have keywords
-  if (keywords.length) {
-    // ilike on any keyword in title
-    query = query.or(keywords.map((k) => `title.ilike.%${k}%`).join(','))
-  }
-
-  const { data, error } = await query.limit(200)
-
-  if (error) {
-    console.error('Candidate search error:', error)
-    return []
-  }
-
-  return (data ?? []).map((r) => r.id)
 }

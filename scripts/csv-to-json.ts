@@ -21,8 +21,8 @@ try {
   })
 
   // Додаткова чистка: якщо парсер через помилки залишив лапки в тексті
-  const sanitized = records.map(row => {
-    const cleanRow = {}
+  const sanitized = records.map((row: any) => {
+    const cleanRow: any = {}
     for (const key in row) {
       let val = row[key].trim()
       // Прибираємо "сміттєві" лапки з початків і кінців значень
@@ -38,7 +38,7 @@ try {
   writeFileSync(out, JSON.stringify(sanitized, null, 2))
   console.log(`✓ Готово! Збережено рядків: ${sanitized.length}`)
 
-} catch (e) {
+} catch (e: any) {
   console.error("❌ Не вдалося розпарсити автоматично.")
   console.error("Порада: Заміни внутрішні лапки в назвах на « » або завантаж файл у Google Sheets і експортуй як TSV.")
   console.error("Деталі помилки:", e.message)
