@@ -1,16 +1,8 @@
 import OpenAI from 'openai'
 import { env } from '../config/env.js'
-import { openrouter } from '../db/openrouter.js'
 
-// Use OpenAI directly if key provided (faster, no proxy overhead)
-// Otherwise fall back to OpenRouter
-const embeddingClient = env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: env.OPENAI_API_KEY })
-  : openrouter
-
-const embeddingModel = env.OPENAI_API_KEY
-  ? env.OPENROUTER_EMBEDDING_MODEL   // e.g. "text-embedding-3-small"
-  : `openai/${env.OPENROUTER_EMBEDDING_MODEL}` // OpenRouter needs prefix
+const embeddingClient = new OpenAI({ apiKey: env.OPENAI_API_KEY })
+const embeddingModel = env.OPENROUTER_EMBEDDING_MODEL
 
 export async function generateEmbedding(text: string): Promise<number[]> {
   const response = await embeddingClient.embeddings.create({
