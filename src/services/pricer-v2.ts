@@ -1,4 +1,4 @@
-import type { Listing, MarketMetrics, EnrichedPriceResponse, MarketTemplate, EvidenceProduct } from '../types/index.js'
+import type { Listing, MarketMetrics, EnrichedPriceResponse, MarketTemplate, EvidenceProduct, EstimatePriceResponse } from '../types/index.js'
 
 const SIMILARITY_THRESHOLD = 0.50
 const MIN_ANALOGS = 3
@@ -56,6 +56,46 @@ export function buildEnrichedResponse(analogs: Listing[]): EnrichedPriceResponse
     evidence: {
       total_found: analogs.length,
       top_similar_products: analogs.slice(0, 5).map((a) => toEvidenceProduct(a)),
+    },
+  }
+}
+
+export function buildEstimateResponse(analogs: Listing[]): EstimatePriceResponse {
+  const metrics = computeMetrics(analogs)
+
+  const sold = analogs.filter((a) => a.status === 'SOLD')
+  const active = analogs.filter((a) => a.status === 'ACTIVE')
+
+  const durations = sold.map((a) => salesDuration(a.created_at, a.modified_at)).sort((a, b) => a - b)
+
+  return {
+    price: {
+      min: metrics.p20,
+      balanced: metrics.p50,
+      profit: metrics.p80,
+    },
+    days_to_sell: {
+      min: Math.round(percentile(durations, 20)),
+      max: Math.round(percentile(durations, 80)),
+    },
+    statistics: {
+      bargain_percentage: metrics.bargainPercentage,
+    },
+    similar_products: {
+      sold: sold.map((a) => ({
+        image_url: a.image_url,
+        title: a.title,
+        original_price: a.original_price,
+        sold_price: a.sold_price,
+        created_at: a.created_at,
+        updated_at: a.modified_at,
+      })),
+      active: active.map((a) => ({
+        image_url: a.image_url,
+        title: a.title,
+        original_price: a.original_price,
+        created_at: a.created_at,
+      })),
     },
   }
 }
